@@ -27,6 +27,53 @@ router.get('/categories', (req, res) => {
 });
 
 /**
+ * GET /api/menu/meta
+ * Returns filter metadata (unique locations, price range min/max, available categories)
+ */
+router.get('/meta', async (req, res) => {
+  try {
+    const approvedFilter = { status: 'approved' };
+
+    // Distinct locations
+    const locations = await menuItemsCollection.distinct('location', approvedFilter);
+
+    // Price range calculation
+    const priceStats = await menuItemsCollection
+      .aggregate([
+        { $match: approvedFilter },
+        {
+          $group: {
+            _id: null,
+            minPrice: { $min: '$price' },
+            maxPrice: { $max: '$price' },
+            totalApproved: { $sum: 1 },
+          },
+        },
+      ])
+      .toArray();
+
+    const stats = priceStats[0] || { minPrice: 0, maxPrice: 100, totalApproved: 0 };
+
+    res.status(200).json({
+      success: true,
+      categories: MENU_CATEGORIES,
+      locations: locations.filter(Boolean).sort(),
+      priceRange: {
+        min: stats.minPrice || 0,
+        max: stats.maxPrice || 100,
+      },
+      totalItems: stats.totalApproved || 0,
+    });
+  } catch (error) {
+    console.error('[Menu Meta] Error fetching metadata:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve menu metadata.',
+    });
+  }
+});
+
+/**
  * GET /api/menu/featured
  * Returns at least 6 approved and active items for the homepage
  */
@@ -54,44 +101,111 @@ router.get('/featured', async (req, res) => {
 
 /**
  * GET /api/menu
- * Public browse: Fetch all approved menu items
+ * Advanced Browse & Search:
+ * Query parameters:
+ * - search: Keyword matching name or description
+ * - category: Exact category or 'All'
+ * - location: Filter by area/city
+ * - minPrice / maxPrice: Price range
+ * - sort: 'price_asc' | 'price_desc' | 'name_asc' | 'name_desc' | 'newest'
+ * - page & limit: Pagination support
  */
 router.get('/', async (req, res) => {
   try {
+    const {
+      search,
+      category,
+      location,
+      minPrice,
+      maxPrice,
+      sort,
+      page = 1,
+      limit = 12,
+    } = req.query;
+
     const query = { status: 'approved' };
 
-    // Optional category filter
-    if (req.query.category && req.query.category !== 'All') {
-      query.category = req.query.category;
+    // 1. Search filter (Item name or description)
+    if (search && search.trim()) {
+      const sanitized = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      query.$or = [
+        { itemName: { $regex: sanitized, $options: 'i' } },
+        { description: { $regex: sanitized, $options: 'i' } },
+        { location: { $regex: sanitized, $options: 'i' } },
+      ];
     }
 
-    // Optional location filter
-    if (req.query.location) {
-      query.location = { $regex: req.query.location, $options: 'i' };
+    // 2. Category filter
+    if (category && category !== 'All' && category.trim()) {
+      query.category = category.trim();
     }
 
-    // Optional search by name
-    if (req.query.search) {
-      query.itemName = { $regex: req.query.search, $options: 'i' };
+    // 3. Location filter
+    if (location && location !== 'All' && location.trim()) {
+      const sanitizedLoc = location.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      query.location = { $regex: sanitizedLoc, $options: 'i' };
     }
 
-    // Sorting (price asc/desc or newest)
+    // 4. Price range filter
+    const parsedMin = parseFloat(minPrice);
+    const parsedMax = parseFloat(maxPrice);
+    if (!isNaN(parsedMin) || !isNaN(parsedMax)) {
+      query.price = {};
+      if (!isNaN(parsedMin)) query.price.$gte = parsedMin;
+      if (!isNaN(parsedMax)) query.price.$lte = parsedMax;
+    }
+
+    // 5. Sorting options (Challenge Requirement 1)
     let sortOption = { createdAt: -1 };
-    if (req.query.sort === 'price_asc') {
-      sortOption = { price: 1 };
-    } else if (req.query.sort === 'price_desc') {
-      sortOption = { price: -1 };
+    switch (sort) {
+      case 'price_asc':
+        sortOption = { price: 1 };
+        break;
+      case 'price_desc':
+        sortOption = { price: -1 };
+        break;
+      case 'name_asc':
+        sortOption = { itemName: 1 };
+        break;
+      case 'name_desc':
+        sortOption = { itemName: -1 };
+        break;
+      case 'newest':
+      default:
+        sortOption = { createdAt: -1 };
+        break;
     }
 
-    const items = await menuItemsCollection.find(query).sort(sortOption).toArray();
+    // 6. Pagination calculation
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.max(1, Math.min(50, parseInt(limit, 10) || 12));
+    const skip = (pageNum - 1) * limitNum;
+
+    const totalItems = await menuItemsCollection.countDocuments(query);
+    const totalPages = Math.ceil(totalItems / limitNum) || 1;
+
+    const items = await menuItemsCollection
+      .find(query)
+      .sort(sortOption)
+      .skip(skip)
+      .limit(limitNum)
+      .toArray();
 
     res.status(200).json({
       success: true,
-      count: items.length,
       items,
+      count: items.length,
+      pagination: {
+        totalItems,
+        totalPages,
+        currentPage: pageNum,
+        limit: limitNum,
+        hasNextPage: pageNum < totalPages,
+        hasPrevPage: pageNum > 1,
+      },
     });
   } catch (error) {
-    console.error('[Menu Route] Fetch items error:', error);
+    console.error('[Menu Route] Advanced search error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch menu items.',
