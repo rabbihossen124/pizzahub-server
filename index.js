@@ -6,6 +6,7 @@ import authRoutes from './routes/auth.js';
 import menuRoutes from './routes/menu.js';
 import vendorRoutes from './routes/vendor.js';
 import orderRoutes from './routes/orders.js';
+import paymentRoutes from './routes/payment.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -37,6 +38,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/menu', menuRoutes);
 app.use('/api/vendor', vendorRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api/payment', paymentRoutes);
 
 // Basic Health Check Route
 app.get('/', (req, res) => {
