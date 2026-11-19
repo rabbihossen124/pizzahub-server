@@ -143,6 +143,191 @@ router.post('/', verifyJWT, async (req, res) => {
 });
 
 /**
+ * GET /api/orders/my-orders
+ * Protected: Customer retrieves their order history
+ * Supports status filtering and search
+ */
+router.get('/my-orders', verifyJWT, async (req, res) => {
+  try {
+    const customerId = req.user.userId;
+    const customerEmail = req.user.email;
+    const { status, search } = req.query;
+
+    const query = {
+      $or: [{ customerId }, { customerEmail }],
+    };
+
+    if (status && status !== 'all') {
+      query.status = status;
+    }
+
+    if (search && search.trim()) {
+      const sanitized = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      query.$and = [
+        {
+          $or: [
+            { itemName: { $regex: sanitized, $options: 'i' } },
+            { vendorName: { $regex: sanitized, $options: 'i' } },
+          ],
+        },
+      ];
+    }
+
+    const orders = await ordersCollection.find(query).sort({ createdAt: -1 }).toArray();
+
+    // Summary counts for Customer Dashboard tabs
+    const customerBaseQuery = { $or: [{ customerId }, { customerEmail }] };
+    const [total, pending, accepted, rejected, cancelled] = await Promise.all([
+      ordersCollection.countDocuments(customerBaseQuery),
+      ordersCollection.countDocuments({ ...customerBaseQuery, status: 'pending' }),
+      ordersCollection.countDocuments({ ...customerBaseQuery, status: 'accepted' }),
+      ordersCollection.countDocuments({ ...customerBaseQuery, status: 'rejected' }),
+      ordersCollection.countDocuments({ ...customerBaseQuery, status: 'cancelled' }),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      count: orders.length,
+      orders,
+      summary: {
+        total,
+        pending,
+        accepted,
+        rejected,
+        cancelled,
+      },
+    });
+  } catch (error) {
+    console.error('[Orders Route] Fetch my-orders error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve your orders.',
+    });
+  }
+});
+
+/**
+ * GET /api/orders/customer/stats
+ * Protected: Customer Dashboard Overview metrics
+ * Returns: total, pending, accepted, and rejected orders
+ */
+router.get('/customer/stats', verifyJWT, async (req, res) => {
+  try {
+    const customerId = req.user.userId;
+    const customerEmail = req.user.email;
+    const customerBaseQuery = { $or: [{ customerId }, { customerEmail }] };
+
+    const [total, pending, accepted, rejected, cancelled] = await Promise.all([
+      ordersCollection.countDocuments(customerBaseQuery),
+      ordersCollection.countDocuments({ ...customerBaseQuery, status: 'pending' }),
+      ordersCollection.countDocuments({ ...customerBaseQuery, status: 'accepted' }),
+      ordersCollection.countDocuments({ ...customerBaseQuery, status: 'rejected' }),
+      ordersCollection.countDocuments({ ...customerBaseQuery, status: 'cancelled' }),
+    ]);
+
+    // Calculate total spent on accepted orders
+    const spentStats = await ordersCollection
+      .aggregate([
+        { $match: { ...customerBaseQuery, status: 'accepted' } },
+        { $group: { _id: null, totalSpent: { $sum: '$totalPrice' } } },
+      ])
+      .toArray();
+
+    const totalSpent = spentStats[0]?.totalSpent || 0;
+
+    return res.status(200).json({
+      success: true,
+      stats: {
+        total,
+        pending,
+        accepted,
+        rejected,
+        cancelled,
+        totalSpent: Number(totalSpent.toFixed(2)),
+      },
+    });
+  } catch (error) {
+    console.error('[Orders Route] Customer stats error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve customer statistics.',
+    });
+  }
+});
+
+/**
+ * PATCH /api/orders/:id/cancel
+ * Protected: Customer cancels a pending order
+ * Rules:
+ * 1. Customers cannot change or cancel another customer's order (403 Forbidden)
+ * 2. Cannot cancel an order that is already accepted, rejected, or cancelled (400 Bad Request)
+ */
+router.patch('/:id/cancel', verifyJWT, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid order ID format.',
+      });
+    }
+
+    const order = await ordersCollection.findOne({ _id: new ObjectId(id) });
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: 'Order not found.',
+      });
+    }
+
+    // Rule: Customers cannot change or cancel another customer's order
+    const isOwnerCustomer =
+      order.customerId === req.user.userId || order.customerEmail === req.user.email;
+
+    if (!isOwnerCustomer) {
+      return res.status(403).json({
+        success: false,
+        message: "Forbidden. You cannot cancel another customer's order.",
+      });
+    }
+
+    // Rule: Cannot cancel an order that is already accepted, rejected, or cancelled
+    if (order.status !== 'pending') {
+      return res.status(400).json({
+        success: false,
+        message: `You cannot cancel an order that is already ${order.status}. Only pending orders can be cancelled.`,
+      });
+    }
+
+    await ordersCollection.updateOne(
+      { _id: new ObjectId(id) },
+      {
+        $set: {
+          status: 'cancelled',
+          updatedAt: new Date(),
+        },
+      }
+    );
+
+    const updatedOrder = await ordersCollection.findOne({ _id: new ObjectId(id) });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Order successfully cancelled.',
+      order: updatedOrder,
+    });
+  } catch (error) {
+    console.error('[Orders Route] Cancel order error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to cancel order.',
+    });
+  }
+});
+
+/**
  * GET /api/orders/vendor
  * Protected: Fetch all incoming orders for the authenticated vendor
  * Supports status filtering and search
