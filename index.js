@@ -4,6 +4,7 @@ import 'dotenv/config';
 import { connectDB } from './config/db.js';
 import authRoutes from './routes/auth.js';
 import menuRoutes from './routes/menu.js';
+import vendorRoutes from './routes/vendor.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -33,6 +34,7 @@ app.use(express.json());
 // Mount Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/menu', menuRoutes);
+app.use('/api/vendor', vendorRoutes);
 
 // Basic Health Check Route
 app.get('/', (req, res) => {

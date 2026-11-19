@@ -2,6 +2,7 @@ import express from 'express';
 import { ObjectId } from 'mongodb';
 import { menuItemsCollection, usersCollection } from '../config/db.js';
 import { verifyJWT, requireRole } from '../middlewares/auth.js';
+import { checkVendorMenuLimit } from './vendor.js';
 
 const router = express.Router();
 
@@ -317,29 +318,14 @@ router.post('/', verifyJWT, requireRole('vendor'), async (req, res) => {
     const vendorId = req.user.userId;
     const vendorEmail = req.user.email;
 
-    // Fetch vendor profile to check subscription plan
-    const vendor = await usersCollection.findOne({
-      $or: [
-        { _id: ObjectId.isValid(vendorId) ? new ObjectId(vendorId) : null },
-        { email: vendorEmail },
-      ],
-    });
-
-    const isPremium = vendor && vendor.subscriptionPlan === 'premium';
-
-    // Free tier limitation check (Maximum 3 active/pending items)
-    if (!isPremium) {
-      const activeCount = await menuItemsCollection.countDocuments({
-        $or: [{ vendorId }, { vendorEmail }],
-        status: { $in: ['approved', 'pending'] },
+    // Check vendor subscription plan and menu item limits (Free: 3 items, Premium: unlimited)
+    const limitInfo = await checkVendorMenuLimit(vendorId, vendorEmail);
+    if (!limitInfo.canAddMore) {
+      return res.status(403).json({
+        success: false,
+        message: 'Free tier limit reached: You can have a maximum of 3 active menu items. Please upgrade to Premium for unlimited items.',
+        limitInfo,
       });
-
-      if (activeCount >= 3) {
-        return res.status(403).json({
-          success: false,
-          message: 'Free tier limit reached: You can have a maximum of 3 active menu items. Please upgrade to Premium for unlimited items.',
-        });
-      }
     }
 
     const newItem = {
