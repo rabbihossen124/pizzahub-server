@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import { ObjectId } from 'mongodb';
 import { usersCollection, transactionsCollection } from '../config/db.js';
 import { verifyJWT, requireRole } from '../middlewares/auth.js';
+import { activatePremiumSubscription } from './webhook.js';
 
 const router = express.Router();
 
@@ -163,6 +164,68 @@ router.get('/transactions', verifyJWT, requireRole('vendor', 'admin'), async (re
     return res.status(500).json({
       success: false,
       message: 'Failed to retrieve transaction records.',
+    });
+  }
+});
+
+/**
+ * POST /api/payment/confirm-session
+ * Protected: Verified session confirmation fallback
+ * Direct server-to-Stripe verification if webhook is delayed or testing locally
+ */
+router.post('/confirm-session', verifyJWT, requireRole('vendor'), async (req, res) => {
+  try {
+    const { sessionId } = req.body;
+
+    if (!sessionId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Session ID is required for verification.',
+      });
+    }
+
+    // Retrieve directly from Stripe API to ensure authenticity
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+    if (!session) {
+      return res.status(404).json({
+        success: false,
+        message: 'Session not found in Stripe.',
+      });
+    }
+
+    // Security check: Vendor can only confirm their own session
+    const sessionEmail = session.metadata?.vendorEmail || session.customer_email;
+    if (sessionEmail && sessionEmail !== req.user.email) {
+      return res.status(403).json({
+        success: false,
+        message: 'Forbidden. You cannot verify another vendor\'s payment session.',
+      });
+    }
+
+    if (session.payment_status === 'paid' || session.status === 'complete') {
+      await activatePremiumSubscription(session);
+      return res.status(200).json({
+        success: true,
+        message: 'Payment verified and Premium subscription successfully activated!',
+        session: {
+          id: session.id,
+          amount: session.amount_total / 100,
+          plan: 'premium',
+        },
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: `Payment not completed yet. Current status: ${session.payment_status}`,
+      });
+    }
+  } catch (error) {
+    console.error('[Payment Route] Confirm session error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to verify payment session with Stripe.',
+      error: error.message,
     });
   }
 });
