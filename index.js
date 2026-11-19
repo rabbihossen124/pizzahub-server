@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import 'dotenv/config';
-import { MongoClient, ServerApiVersion } from 'mongodb';
+import { connectDB } from './config/db.js';
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -28,38 +28,6 @@ app.use(
 
 app.use(express.json());
 
-// MongoDB Client Initialization
-const uri = process.env.MONGODB_URI;
-if (!uri) {
-  console.error('[CRITICAL] MONGODB_URI is not defined in .env file!');
-  process.exit(1);
-}
-
-const client = new MongoClient(uri, {
-  serverApi: {
-    version: ServerApiVersion.v1,
-    strict: true,
-    deprecationErrors: true,
-  },
-});
-
-let db;
-
-export async function connectToMongoDB() {
-  try {
-    if (!db) {
-      await client.connect();
-      const dbName = process.env.MONGODB_DB || process.env.DB_NAME || 'PizzaHub';
-      db = client.db(dbName);
-      console.log(`[MongoDB] Successfully connected to database: ${dbName}`);
-    }
-    return db;
-  } catch (err) {
-    console.error('[MongoDB] Connection error:', err);
-    throw err;
-  }
-}
-
 // Basic Health Check Route
 app.get('/', (req, res) => {
   res.status(200).json({
@@ -69,10 +37,10 @@ app.get('/', (req, res) => {
   });
 });
 
-// Start Express server and connect to DB
+// Start Express server and connect to MongoDB
 async function startServer() {
   try {
-    await connectToMongoDB();
+    await connectDB();
     app.listen(port, () => {
       console.log(`[PizzaHub Server] Server running on http://localhost:${port}`);
     });
@@ -83,4 +51,4 @@ async function startServer() {
 
 startServer();
 
-export { app, client };
+export { app };
