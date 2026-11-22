@@ -7,6 +7,10 @@ PizzaHub is a full-featured, role-based food ordering and restaurant delivery pl
 ## 🍕 Project Overview
 
 - **Project Name:** PizzaHub — Pizza Ordering & Delivery Platform (Server)
+- **Live Server API:** [https://pizzahub-server-pearl.vercel.app](https://pizzahub-server-pearl.vercel.app)
+- **Live Client Web App:** [https://pizzahub-orcin.vercel.app](https://pizzahub-orcin.vercel.app)
+- **Server Repository:** [https://github.com/rabbihossen124/pizzahub-server](https://github.com/rabbihossen124/pizzahub-server)
+- **Client Repository:** [https://github.com/rabbihossen124/PizzaHub](https://github.com/rabbihossen124/PizzaHub)
 - **Architecture:** Modular MVC REST API with Express.js & MongoDB Native Driver
 - **Authentication:** JWT Token Verification Middleware & Role-Based Access Control (Admin, Vendor, Customer)
 - **Payment Processing:** Stripe Checkout Session & Webhook Integration for Vendor Premium Subscriptions

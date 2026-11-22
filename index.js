@@ -16,6 +16,7 @@ const port = process.env.PORT || 5000;
 // CORS configuration
 const allowedOrigins = [
   'http://localhost:3000',
+  'https://pizzahub-orcin.vercel.app',
   process.env.CLIENT_URL,
 ].filter(Boolean);
 

@@ -52,7 +52,7 @@ router.post('/create-checkout-session', verifyJWT, requireRole('vendor'), async 
       });
     }
 
-    const clientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+    const clientUrl = req.headers.origin || process.env.CLIENT_URL || 'https://pizzahub-orcin.vercel.app';
 
     // Create Stripe Checkout Session
     const session = await stripe.checkout.sessions.create({
