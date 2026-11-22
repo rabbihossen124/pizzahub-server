@@ -1,53 +1,79 @@
 import { MongoClient, ServerApiVersion } from 'mongodb';
 import 'dotenv/config';
 
-const uri = process.env.MONGODB_URI;
-if (!uri) {
-  console.error('[CRITICAL] MONGODB_URI is not defined in .env file!');
-  process.exit(1);
-}
-
-export const client = new MongoClient(uri, {
-  serverApi: {
-    version: ServerApiVersion.v1,
-    strict: false,
-    deprecationErrors: true,
-  },
-});
-
+let client = null;
+let clientPromise = null;
 let dbInstance = null;
+
+const uri = process.env.MONGODB_URI;
+if (uri) {
+  client = new MongoClient(uri, {
+    serverApi: {
+      version: ServerApiVersion.v1,
+      strict: false,
+      deprecationErrors: true,
+    },
+  });
+}
 
 // Collections
 export let usersCollection;
 export let menuItemsCollection;
 export let ordersCollection;
 export let transactionsCollection;
+export { client };
 
 /**
  * Connect to MongoDB and initialize collections & indexes
  */
 export async function connectDB() {
-  try {
-    if (!dbInstance) {
-      await client.connect();
-      const dbName = process.env.MONGODB_DB || process.env.DB_NAME || 'PizzaHub';
-      dbInstance = client.db(dbName);
-      console.log(`[MongoDB] Connected successfully to database: ${dbName}`);
-
-      // Initialize collections (as per requirements)
-      usersCollection = dbInstance.collection('users');
-      menuItemsCollection = dbInstance.collection('menuItems');
-      ordersCollection = dbInstance.collection('orders');
-      transactionsCollection = dbInstance.collection('transactions');
-
-      // Setup performance and validation indexes
-      await setupDatabaseIndices();
-    }
+  if (dbInstance) {
     return dbInstance;
-  } catch (error) {
-    console.error('[MongoDB] Connection failure:', error);
-    throw error;
   }
+
+  if (!clientPromise) {
+    const mongoUri = process.env.MONGODB_URI;
+    if (!mongoUri) {
+      throw new Error('[CRITICAL] MONGODB_URI is not defined in environment variables!');
+    }
+
+    if (!client) {
+      client = new MongoClient(mongoUri, {
+        serverApi: {
+          version: ServerApiVersion.v1,
+          strict: false,
+          deprecationErrors: true,
+        },
+      });
+    }
+
+    clientPromise = client
+      .connect()
+      .then(async (connectedClient) => {
+        const dbName = process.env.MONGODB_DB || process.env.DB_NAME || 'PizzaHub';
+        dbInstance = connectedClient.db(dbName);
+        console.log(`[MongoDB] Connected successfully to database: ${dbName}`);
+
+        // Initialize collections
+        usersCollection = dbInstance.collection('users');
+        menuItemsCollection = dbInstance.collection('menuItems');
+        ordersCollection = dbInstance.collection('orders');
+        transactionsCollection = dbInstance.collection('transactions');
+
+        // Setup performance and validation indexes
+        await setupDatabaseIndices();
+
+        return dbInstance;
+      })
+      .catch((error) => {
+        clientPromise = null; // Reset so retry can be attempted on next request
+        console.error('[MongoDB] Connection failure:', error);
+        throw error;
+      });
+  }
+
+  await clientPromise;
+  return dbInstance;
 }
 
 /**

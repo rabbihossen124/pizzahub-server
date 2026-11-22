@@ -203,7 +203,7 @@ router.post('/confirm-session', verifyJWT, requireRole('vendor'), async (req, re
       });
     }
 
-    if (session.payment_status === 'paid' || session.status === 'complete') {
+    if (session.payment_status === 'paid') {
       await activatePremiumSubscription(session);
       return res.status(200).json({
         success: true,
@@ -217,7 +217,7 @@ router.post('/confirm-session', verifyJWT, requireRole('vendor'), async (req, re
     } else {
       return res.status(400).json({
         success: false,
-        message: `Payment not completed yet. Current status: ${session.payment_status}`,
+        message: `Payment not completed yet. Current payment status: ${session.payment_status}`,
       });
     }
   } catch (error) {

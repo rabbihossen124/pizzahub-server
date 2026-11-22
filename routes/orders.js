@@ -173,11 +173,10 @@ router.get('/my-orders', verifyJWT, async (req, res) => {
       ];
     }
 
-    const orders = await ordersCollection.find(query).sort({ createdAt: -1 }).toArray();
-
-    // Summary counts for Customer Dashboard tabs
+    // Summary counts & order records fetched in parallel
     const customerBaseQuery = { $or: [{ customerId }, { customerEmail }] };
-    const [total, pending, accepted, rejected, cancelled] = await Promise.all([
+    const [orders, total, pending, accepted, rejected, cancelled] = await Promise.all([
+      ordersCollection.find(query).sort({ createdAt: -1 }).toArray(),
       ordersCollection.countDocuments(customerBaseQuery),
       ordersCollection.countDocuments({ ...customerBaseQuery, status: 'pending' }),
       ordersCollection.countDocuments({ ...customerBaseQuery, status: 'accepted' }),
@@ -361,11 +360,10 @@ router.get('/vendor', verifyJWT, requireRole('vendor', 'admin'), async (req, res
       ];
     }
 
-    const orders = await ordersCollection.find(query).sort({ createdAt: -1 }).toArray();
-
-    // Summary counts for vendor dashboard tabs
+    // Run order fetch & status counts in parallel
     const vendorBaseQuery = { $or: [{ vendorId }, { vendorEmail }] };
-    const [total, pending, accepted, rejected, cancelled] = await Promise.all([
+    const [orders, total, pending, accepted, rejected, cancelled] = await Promise.all([
+      ordersCollection.find(query).sort({ createdAt: -1 }).toArray(),
       ordersCollection.countDocuments(vendorBaseQuery),
       ordersCollection.countDocuments({ ...vendorBaseQuery, status: 'pending' }),
       ordersCollection.countDocuments({ ...vendorBaseQuery, status: 'accepted' }),

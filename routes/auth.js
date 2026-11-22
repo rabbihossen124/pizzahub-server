@@ -110,6 +110,67 @@ router.get('/me', verifyJWT, async (req, res) => {
 });
 
 /**
+ * PATCH /api/auth/profile
+ * Protected: Update current user's name, profile image, or business name
+ */
+router.patch('/profile', verifyJWT, async (req, res) => {
+  try {
+    const { name, image, businessName } = req.body;
+    const updateFields = { updatedAt: new Date() };
+
+    if (name && typeof name === 'string') {
+      updateFields.name = name.trim();
+    }
+    if (image !== undefined && typeof image === 'string') {
+      updateFields.image = image.trim();
+    }
+    if (businessName !== undefined && typeof businessName === 'string') {
+      updateFields.businessName = businessName.trim();
+    }
+
+    await usersCollection.updateOne(
+      { email: req.user.email },
+      { $set: updateFields }
+    );
+
+    // Also sync with Better Auth's 'user' collection in the same database
+    try {
+      const db = usersCollection.db || (usersCollection.s && usersCollection.s.db);
+      if (db) {
+        await db.collection('user').updateOne(
+          { email: req.user.email },
+          { $set: updateFields }
+        );
+      }
+    } catch (syncErr) {
+      console.warn('[Auth Route] Better Auth user collection sync warning:', syncErr.message);
+    }
+
+    const updatedUser = await usersCollection.findOne({ email: req.user.email });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully!',
+      user: {
+        userId: updatedUser?._id?.toString() || req.user.userId,
+        name: updatedUser?.name || req.user.name,
+        email: req.user.email,
+        image: updatedUser?.image || '',
+        role: updatedUser?.role || req.user.role,
+        businessName: updatedUser?.businessName || '',
+      },
+    });
+  } catch (error) {
+    console.error('[Auth Route] Update profile error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update profile.',
+      error: error.message,
+    });
+  }
+});
+
+/**
  * Role Verification Test Endpoints
  */
 router.get('/admin-check', verifyJWT, requireRole('admin'), (req, res) => {

@@ -38,6 +38,20 @@ app.use('/api/webhook/stripe', webhookRoutes);
 
 app.use(express.json());
 
+// Database connection middleware (Ensures MongoDB is ready for serverless requests)
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    console.error('[Database Connection Error]:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Database connection failed. Please ensure MongoDB Atlas IP is whitelisted (0.0.0.0/0).',
+    });
+  }
+});
+
 // Mount Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/menu', menuRoutes);
@@ -55,7 +69,7 @@ app.get('/', (req, res) => {
   });
 });
 
-// Start Express server and connect to MongoDB
+// Start Express server and connect to MongoDB (Local development only)
 async function startServer() {
   try {
     await connectDB();
@@ -67,6 +81,10 @@ async function startServer() {
   }
 }
 
-startServer();
+// In Vercel serverless environment, Vercel manages the HTTP server lifecycle
+if (!process.env.VERCEL) {
+  startServer();
+}
 
 export { app };
+export default app;

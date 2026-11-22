@@ -16,6 +16,13 @@ export const MENU_CATEGORIES = [
   'Beverages & Desserts',
 ];
 
+// In-memory cache for fast metadata and featured items
+let metaCache = null;
+let metaCacheTime = 0;
+let featuredCache = null;
+let featuredCacheTime = 0;
+const CACHE_TTL_MS = 30000; // 30 seconds cache
+
 /**
  * GET /api/menu/categories
  * Returns official pizza categories
@@ -33,29 +40,34 @@ router.get('/categories', (req, res) => {
  */
 router.get('/meta', async (req, res) => {
   try {
+    const now = Date.now();
+    if (metaCache && now - metaCacheTime < CACHE_TTL_MS) {
+      return res.status(200).json(metaCache);
+    }
+
     const approvedFilter = { status: 'approved' };
 
-    // Distinct locations
-    const locations = await menuItemsCollection.distinct('location', approvedFilter);
-
-    // Price range calculation
-    const priceStats = await menuItemsCollection
-      .aggregate([
-        { $match: approvedFilter },
-        {
-          $group: {
-            _id: null,
-            minPrice: { $min: '$price' },
-            maxPrice: { $max: '$price' },
-            totalApproved: { $sum: 1 },
+    // Run distinct locations and price aggregation in parallel
+    const [locations, priceStats] = await Promise.all([
+      menuItemsCollection.distinct('location', approvedFilter),
+      menuItemsCollection
+        .aggregate([
+          { $match: approvedFilter },
+          {
+            $group: {
+              _id: null,
+              minPrice: { $min: '$price' },
+              maxPrice: { $max: '$price' },
+              totalApproved: { $sum: 1 },
+            },
           },
-        },
-      ])
-      .toArray();
+        ])
+        .toArray(),
+    ]);
 
     const stats = priceStats[0] || { minPrice: 0, maxPrice: 100, totalApproved: 0 };
 
-    res.status(200).json({
+    const responsePayload = {
       success: true,
       categories: MENU_CATEGORIES,
       locations: locations.filter(Boolean).sort(),
@@ -64,7 +76,12 @@ router.get('/meta', async (req, res) => {
         max: stats.maxPrice || 100,
       },
       totalItems: stats.totalApproved || 0,
-    });
+    };
+
+    metaCache = responsePayload;
+    metaCacheTime = now;
+
+    res.status(200).json(responsePayload);
   } catch (error) {
     console.error('[Menu Meta] Error fetching metadata:', error);
     res.status(500).json({
@@ -80,17 +97,27 @@ router.get('/meta', async (req, res) => {
  */
 router.get('/featured', async (req, res) => {
   try {
+    const now = Date.now();
+    if (featuredCache && now - featuredCacheTime < CACHE_TTL_MS) {
+      return res.status(200).json(featuredCache);
+    }
+
     const items = await menuItemsCollection
       .find({ status: 'approved' })
       .sort({ createdAt: -1 })
       .limit(8)
       .toArray();
 
-    res.status(200).json({
+    const responsePayload = {
       success: true,
       count: items.length,
       items,
-    });
+    };
+
+    featuredCache = responsePayload;
+    featuredCacheTime = now;
+
+    res.status(200).json(responsePayload);
   } catch (error) {
     console.error('[Menu Route] Fetch featured error:', error);
     res.status(500).json({
@@ -182,15 +209,18 @@ router.get('/', async (req, res) => {
     const limitNum = Math.max(1, Math.min(50, parseInt(limit, 10) || 12));
     const skip = (pageNum - 1) * limitNum;
 
-    const totalItems = await menuItemsCollection.countDocuments(query);
-    const totalPages = Math.ceil(totalItems / limitNum) || 1;
+    // Run count and query in parallel for maximum performance
+    const [totalItems, items] = await Promise.all([
+      menuItemsCollection.countDocuments(query),
+      menuItemsCollection
+        .find(query)
+        .sort(sortOption)
+        .skip(skip)
+        .limit(limitNum)
+        .toArray(),
+    ]);
 
-    const items = await menuItemsCollection
-      .find(query)
-      .sort(sortOption)
-      .skip(skip)
-      .limit(limitNum)
-      .toArray();
+    const totalPages = Math.ceil(totalItems / limitNum) || 1;
 
     res.status(200).json({
       success: true,

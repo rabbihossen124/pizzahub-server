@@ -113,15 +113,16 @@ router.get('/users', async (req, res) => {
     const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10) || 20));
     const skip = (pageNum - 1) * limitNum;
 
-    const totalUsers = await usersCollection.countDocuments(query);
+    const [totalUsers, users] = await Promise.all([
+      usersCollection.countDocuments(query),
+      usersCollection
+        .find(query, { projection: { password: 0 } })
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .toArray(),
+    ]);
     const totalPages = Math.ceil(totalUsers / limitNum) || 1;
-
-    const users = await usersCollection
-      .find(query, { projection: { password: 0 } })
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limitNum)
-      .toArray();
 
     return res.status(200).json({
       success: true,
@@ -242,15 +243,16 @@ router.get('/menu', async (req, res) => {
     const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10) || 20));
     const skip = (pageNum - 1) * limitNum;
 
-    const totalItems = await menuItemsCollection.countDocuments(query);
+    const [totalItems, items] = await Promise.all([
+      menuItemsCollection.countDocuments(query),
+      menuItemsCollection
+        .find(query)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .toArray(),
+    ]);
     const totalPages = Math.ceil(totalItems / limitNum) || 1;
-
-    const items = await menuItemsCollection
-      .find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limitNum)
-      .toArray();
 
     return res.status(200).json({
       success: true,
