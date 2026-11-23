@@ -60,8 +60,8 @@ export async function connectDB() {
         ordersCollection = dbInstance.collection('orders');
         transactionsCollection = dbInstance.collection('transactions');
 
-        // Setup performance and validation indexes
-        await setupDatabaseIndices();
+        // Setup performance and validation indexes asynchronously in background (never block requests)
+        setupDatabaseIndices().catch((err) => console.warn('[MongoDB] Index setup background notice:', err.message));
 
         return dbInstance;
       })
