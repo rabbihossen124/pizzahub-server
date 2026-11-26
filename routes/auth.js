@@ -19,23 +19,33 @@ router.post('/token', async (req, res) => {
       });
     }
 
-    // Lookup user in DB to check existing role and block status
-    let user = await usersCollection.findOne({ email });
+    const normalizedEmail = String(email).trim().toLowerCase();
 
-    if (!user) {
-      // First-time record if syncing from Better Auth
-      const newUser = {
-        name: name || '',
-        email,
-        image: image || '',
-        role: role || 'customer', // Default role: customer
-        isBlocked: false,
-        subscriptionPlan: 'free',
-        subscriptionExpiresAt: null,
-        createdAt: new Date(),
-      };
-      const result = await usersCollection.insertOne(newUser);
-      user = { _id: result.insertedId, ...newUser };
+    // Atomically lookup or create user in DB to prevent E11000 race condition when multiple components sync concurrently
+    let user;
+    try {
+      user = await usersCollection.findOneAndUpdate(
+        { email: normalizedEmail },
+        {
+          $setOnInsert: {
+            name: name || '',
+            email: normalizedEmail,
+            image: image || '',
+            role: role || 'customer', // Default role: customer
+            isBlocked: false,
+            subscriptionPlan: 'free',
+            subscriptionExpiresAt: null,
+            createdAt: new Date(),
+          },
+        },
+        { upsert: true, returnDocument: 'after' }
+      );
+    } catch (upsertErr) {
+      if (upsertErr && upsertErr.code === 11000) {
+        user = await usersCollection.findOne({ email: normalizedEmail });
+      } else {
+        throw upsertErr;
+      }
     }
 
     if (user.isBlocked) {
